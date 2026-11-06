@@ -1,0 +1,3 @@
+test/.sdk-shim.mjs
+test/.jsx-shim.mjs
+test/.plugin-under-test.mjs
