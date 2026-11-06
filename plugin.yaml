@@ -9,4 +9,5 @@ description: >
   composer. Your question stays a separate draft; on send the quotes are
   prepended once as Markdown blockquotes. Desktop-only (desktop/plugin.js inside
   the plugin SDK surface); no agent tools, hooks, middleware or env vars.
+requires_hermes: ">=0.22.5"
 tags: [desktop, composer, quote, chat]

@@ -14,6 +14,14 @@ what does this mean for the migration?
 
 Asking about one specific sentence of a long reply normally means copy, paste, add `>` by hand, and hope the agent notices which part you meant. Quote to Chat keeps the quote and your question apart until you send, so you can collect several quotes, remove one with its ×, and edit your question freely.
 
+## How it differs from Quote & Ask
+
+[`quote-ask`](https://github.com/freefate258/quote-ask) pastes the selection into your draft as text. Quote to Chat keeps quotes as separate, removable cards and merges them only at send time (`composer.middleware`), so:
+
+- your draft is never edited, and several quotes can be collected and removed one by one;
+- quotes are scoped to the chat they were taken in;
+- a busy-agent send and a rejected send keep the quote attached to the question.
+
 ## Behaviour
 
 - **Per chat.** Quotes belong to the chat you added them in; switching chats never leaks a quote into another conversation.
