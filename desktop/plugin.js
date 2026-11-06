@@ -1,5 +1,5 @@
 /**
- * Quote to chat — select text in a chat message, press «Добавить в чат», and the
+ * Quote to chat — select text in a chat message, press "Add to chat", and the
  * excerpt lands as a removable quote card above the composer (like Codex). Your
  * own question stays a separate draft; the quote is prepended as a Markdown
  * blockquote only when you send.
@@ -8,12 +8,15 @@
  * `react` and `react/jsx-runtime` are importable, UI is `jsx()` calls.
  *
  * Surfaces used (all public SDK seams, no app patching):
- *  - a floating «Добавить в чат» button over a selection in the transcript
- *    (plain DOM on <body>, owned and disposed by this plugin);
+ *  - a floating "Add to chat" button over any text selection outside an
+ *    input (plain DOM on <body>, owned and disposed by this plugin; it never
+ *    queries or restyles the app's own markup);
  *  - `composer.top` — the quote cards with an X each;
  *  - `composer.middleware` — prepends the quotes to an idle send;
- *  - while the agent is busy, Enter in the composer is routed through
- *    `host.composer.submit` so a steer/queued follow-up carries the quote too.
+ *  - while the agent is busy, Enter in the active composer (recognised by
+ *    matching an editable's typed text with `host.composer.getDraft`) is
+ *    routed through `host.composer.submit`, so a steer/queued follow-up
+ *    carries the quote too.
  */
 
 import { atom, Codicon, host, useValue } from '@hermes/plugin-sdk'
@@ -21,8 +24,6 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 
 export const ID = 'hermes-quote-to-chat'
 
-const THREAD = '[data-slot="aui_thread-viewport"]'
-const RICH_INPUT = '[data-slot="composer-rich-input"]'
 const EDITABLE = '[contenteditable="true"], [contenteditable=""], input, textarea'
 const BUBBLE_ATTR = 'data-hermes-quote-bubble'
 const MAX_CHARS = 6000
@@ -36,7 +37,7 @@ const STRINGS = {
 /** Quotes waiting for the next send, keyed by stored session id ('new' = fresh draft). */
 export const $quotes = atom({})
 
-let t = key => STRINGS.ru[key] ?? key
+let t = key => STRINGS.en[key] ?? key
 
 export const composerKey = () => host.state.focusedStoredSessionId.get() || 'new'
 
@@ -83,7 +84,7 @@ const isSlashCommand = text => (text ?? '').trim().startsWith('/')
 
 const elementOf = node => (node ? (node.nodeType === 1 ? node : node.parentElement) : null)
 
-/** The current selection when it lies entirely inside a chat transcript (not an input). */
+/** The current selection when it is real text outside any input or editable field. */
 export function transcriptSelection(doc = document) {
   const selection = doc.getSelection?.()
 
@@ -99,9 +100,8 @@ export function transcriptSelection(doc = document) {
 
   const anchor = elementOf(selection.anchorNode)
   const focus = elementOf(selection.focusNode)
-  const thread = anchor?.closest(THREAD)
 
-  if (!thread || !focus || !thread.contains(focus) || anchor.closest(EDITABLE) || focus.closest(EDITABLE)) {
+  if (!anchor || !focus || anchor.closest(EDITABLE) || focus.closest(EDITABLE) || anchor.closest(`[${BUBBLE_ATTR}]`)) {
     return null
   }
 
@@ -204,14 +204,14 @@ export function QuoteCards() {
 
   return jsx('div', {
     className: 'flex w-full flex-col gap-1.5 pb-1',
-    'data-slot': 'quote-to-chat-cards',
+    'data-quote-to-chat': 'cards',
     children: list.map(quote =>
       jsxs(
         'div',
         {
           className:
             'flex w-full items-start gap-2 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-quinary) px-2.5 py-1.5',
-          'data-slot': 'quote-to-chat-card',
+          'data-quote-to-chat': 'card',
           children: [
             jsx(Codicon, { className: 'mt-0.5 shrink-0 text-(--ui-text-tertiary)', name: 'quote', size: '0.8rem' }),
             jsx('div', {
@@ -283,23 +283,53 @@ export function makeMiddleware(schedule) {
   }
 }
 
+const editableText = el => (el?.innerText ?? el?.textContent ?? '').trim()
+
+// The rich-text root the user is typing in (generic contenteditable, not app markup).
+const editableRoot = target => {
+  const el = elementOf(target)
+
+  return el?.closest?.('[contenteditable="true"], [contenteditable=""]') ?? null
+}
+
+/** Learns which editables are composers without touching app markup: after
+ *  typing, an editable whose text equals the SDK's live draft is the active
+ *  composer. */
+export function makeComposerTracker(composers) {
+  return event => {
+    const el = editableRoot(event.target)
+
+    if (!el || composers.has(el)) {
+      return
+    }
+
+    void Promise.resolve(host.composer.getDraft(null))
+      .then(draft => {
+        if (typeof draft === 'string' && draft.trim() && draft.trim() === editableText(el)) {
+          composers.add(el)
+        }
+      })
+      .catch(() => {})
+  }
+}
+
 /** Busy send: the composer steers/queues a busy Enter without the middleware,
  *  so route it through the SDK's submit (which steers or queues the same way). */
-export function makeBusyEnterHandler() {
+export function makeBusyEnterHandler(composers) {
   return event => {
     if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || event.defaultPrevented) {
       return
     }
 
-    const input = event.target?.closest?.(RICH_INPUT)
+    const input = editableRoot(event.target)
 
-    if (!input || !host.state.busy.get()) {
+    if (!input || !composers.has(input) || !host.state.busy.get()) {
       return
     }
 
     const key = composerKey()
     const list = quotesFor(key)
-    const typed = (input.innerText ?? input.textContent ?? '').trim()
+    const typed = editableText(input)
 
     if (!list.length || !typed || isSlashCommand(typed)) {
       return
@@ -325,7 +355,7 @@ export function makeBusyEnterHandler() {
 export default {
   id: ID,
   name: 'Quote to chat',
-  description: 'Select text in a message → «Добавить в чат» → a removable quote card above the input, sent with your next message.',
+  description: 'Select text → "Add to chat" → a removable quote card above the input, sent with your next message.',
   register(ctx) {
     const doc = document
     const view = window
@@ -417,7 +447,10 @@ export default {
         hide()
       }
     })
-    ctx.addEventListener(doc, 'keydown', makeBusyEnterHandler(), true)
+    const composers = new WeakSet()
+
+    ctx.addEventListener(doc, 'input', makeComposerTracker(composers), true)
+    ctx.addEventListener(doc, 'keydown', makeBusyEnterHandler(composers), true)
 
     ctx.register({ id: 'cards', area: 'composer.top', order: -100, render: () => jsx(QuoteCards, {}) })
     ctx.register({ id: 'middleware', area: 'composer.middleware', data: makeMiddleware((fn, ms) => ctx.setTimeout(fn, ms)) })

@@ -41,7 +41,7 @@ const jsxPath = path.join(here, '.jsx-shim.mjs')
 globalThis.__QTC_SDK__ = { host, atom, useValue: a => a.get(), Codicon: props => ({ type: 'Codicon', props }) }
 await writeFile(sdkPath, 'const s = globalThis.__QTC_SDK__; export const host = s.host, atom = s.atom, useValue = s.useValue, Codicon = s.Codicon\n')
 await writeFile(jsxPath, 'export const jsx = (type, props) => ({ type, props }); export const jsxs = jsx\n')
-const source = (await readFile(path.join(root, 'plugin.js'), 'utf8'))
+const source = (await readFile(path.join(root, 'desktop', 'plugin.js'), 'utf8'))
   .replace("'@hermes/plugin-sdk'", JSON.stringify(pathToFileURL(sdkPath).href))
   .replace("'react/jsx-runtime'", JSON.stringify(pathToFileURL(jsxPath).href))
 const modPath = path.join(here, '.plugin-under-test.mjs')
@@ -96,10 +96,10 @@ await test('selection inside transcript shows «Добавить в чат»', a
   assert.match(bubble().textContent, /Добавить в чат/)
 })
 
-await test('selection outside transcript or in the input shows nothing', async () => {
+await test('selection in an input or editable shows nothing; plain text elsewhere does', async () => {
   select(document.getElementById('outside'))
   mouseup(); await flushTimers()
-  assert.equal(bubble().style.display, 'none')
+  assert.equal(bubble().style.display, 'inline-flex')
   const input = document.getElementById('input')
   input.textContent = 'my draft'
   select(input)
@@ -178,10 +178,32 @@ await test('slash commands are never wrapped', async () => {
   mod.setQuotes('sess-A', [])
 })
 
+const typeInto = async (el, text) => {
+  el.textContent = text
+  draft = text
+  el.dispatchEvent(new window.Event('input', { bubbles: true }))
+  await new Promise(r => setTimeout(r, 5))
+}
+
+await test('busy Enter in an editable that is NOT the composer is left alone', async () => {
+  const other = document.createElement('div')
+  other.contentEditable = 'true'
+  document.body.append(other)
+  other.textContent = 'заметка'
+  draft = 'другое'
+  other.dispatchEvent(new window.Event('input', { bubbles: true }))
+  await new Promise(r => setTimeout(r, 5))
+  mod.addQuote('sess-A', 'q')
+  state.busy.set(true)
+  const ev = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+  other.dispatchEvent(ev)
+  assert.equal(ev.defaultPrevented, false)
+  state.busy.set(false); mod.setQuotes('sess-A', []); other.remove()
+})
+
 await test('busy Enter routes quote + question through host.composer.submit', async () => {
   const input = document.getElementById('input')
-  input.textContent = 'уточнение'
-  draft = 'уточнение'
+  await typeInto(input, 'уточнение')
   mod.addQuote('sess-A', 'контекст')
   state.busy.set(true)
   const ev = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
@@ -212,7 +234,7 @@ await test('busy Enter without quotes or with Shift is left to the app', () => {
 
 await test('busy submit refused keeps quote and draft', async () => {
   const input = document.getElementById('input')
-  input.textContent = 'y'; draft = 'y'
+  await typeInto(input, 'y')
   mod.addQuote('sess-A', 'keep')
   state.busy.set(true)
   submitAccepts = false
@@ -222,6 +244,12 @@ await test('busy submit refused keeps quote and draft', async () => {
   assert.equal(mod.quotesFor('sess-A').length, 1)
   assert.equal(calls.setDraft.length, before)
   submitAccepts = true; state.busy.set(false); mod.setQuotes('sess-A', [])
+})
+
+await test('plugin source never touches app markup selectors', async () => {
+  const src = await readFile(path.join(root, 'desktop', 'plugin.js'), 'utf8')
+  assert.doesNotMatch(src, /\[data-(slot|tour|sidebar|testid)/)
+  assert.doesNotMatch(src, /hermesDesktop/)
 })
 
 await test('dispose removes the button and all listeners', async () => {

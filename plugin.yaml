@@ -1,0 +1,12 @@
+name: hermes-quote-to-chat
+label: Quote to Chat
+version: 1.0.0
+author: ivanvanes18
+homepage: https://github.com/ivanvanes18/hermes-quote-to-chat
+description: >
+  Codex-style quoting for Hermes Desktop. Select text anywhere outside an input,
+  press "Add to chat", and the excerpt becomes a removable quote card above the
+  composer. Your question stays a separate draft; on send the quotes are
+  prepended once as Markdown blockquotes. Desktop-only (desktop/plugin.js inside
+  the plugin SDK surface); no agent tools, hooks, middleware or env vars.
+tags: [desktop, composer, quote, chat]
